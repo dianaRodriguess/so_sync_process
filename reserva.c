@@ -4,10 +4,13 @@
 #include <time.h>
 
 #include <pthread.h>
+#include <semaphore.h>
 
 #define NUM_FILEIRAS 38
 #define NUM_COLUNAS 6
 #define NUM_ASSENTOS (NUM_FILEIRAS * NUM_COLUNAS)
+
+sem_t mutex;
 
 // disposicao dos assentos
 char assentos[NUM_FILEIRAS][NUM_COLUNAS];
@@ -149,6 +152,7 @@ void * passageiro(void * id)
     // o passageiro nao finaliza enquanto nao conseguir um assento
     while (passageiros[p] == -1)
     {
+        printf("Passageiro %d - Consultando/Reservando assento... | THREAD: %lu\n", p+1, pthread_self());
         assento = rand() % NUM_ASSENTOS; // 0 - NUM_ASSENTOS-1
         status = rand() % 2;             // 0 - consulta / 1 - reserva 
 
@@ -166,11 +170,26 @@ void * passageiro(void * id)
             printf("Passageiro %d - Reservando assento: %d%c [%d]\n", 
                    p+1, fileira+1, colunas[coluna], assento);
 
+            sem_wait(&mutex);
+            /*
+            Esse trecho de código é o trecho critíco, o que pode acontencer:
+                |--------------------------------------------------------------------|
+                |- Thread A começa a verificar no IF, o assento está disponível      |
+                |- Mudança de contexto                                               |
+                |- Thread B começa a verificar no IF, o assento está disponível      | 
+                |- Mudança de contexto                                               | Condição de
+                |- Thread A reserva o assento                                        |   corrida 
+                |- Mudança de contexto                                               |
+                |- Thread B reserva o assento                                        |
+                |- Portanto, o assento foi reservado por 2 passageiros diferentes    |
+                |--------------------------------------------------------------------|
+            */
             if ( consultar_assento(assento) )
             {
                 reservar_assento(assento);
                 passageiros[p] = assento;
             }
+            sem_post(&mutex);
         }
     }
 }
@@ -179,6 +198,8 @@ int main()
 {
     // iniciando a semente aleatoria do random
     srand(time(NULL));
+
+    sem_init(&mutex, 0, 1);
 
     // inicializando os assentos com assentos disponivel: -
     memset(assentos, '-', sizeof(assentos));
@@ -202,6 +223,7 @@ int main()
         pthread_join(tids[i], NULL);
     }
 
+    sem_destroy(&mutex);
     free(ids);
     free(tids);
 
